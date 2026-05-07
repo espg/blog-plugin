@@ -11,6 +11,7 @@ import { renderList } from "./renderers/list.js";
 import { renderCompact } from "./renderers/compact.js";
 import { applyFilters, parseCommaList, warnUnknownFilterValues, type Filters } from "./filters.js";
 import { applySort } from "./sort.js";
+import { updateDirective } from "./directives/update.js";
 
 const VALID_LIST_STYLES = new Set(["none", "disc", "circle", "square", "decimal"]);
 const VALID_KINDS = new Set(["card", "table", "list", "compact"]);
@@ -200,6 +201,6 @@ function extractBlogFields(ast: any): Record<string, unknown> {
   return out;
 }
 
-const plugin = { name: "Blog posts", directives: [blogPostsDirective] };
+const plugin = { name: "Blog posts", directives: [blogPostsDirective, updateDirective] };
 
 export default plugin;
