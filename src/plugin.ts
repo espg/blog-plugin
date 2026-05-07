@@ -12,6 +12,7 @@ import { renderCompact } from "./renderers/compact.js";
 import { applyFilters, parseCommaList, warnUnknownFilterValues, type Filters } from "./filters.js";
 import { applySort } from "./sort.js";
 import { updateDirective } from "./directives/update.js";
+import { parseNotebookAsAst } from "./notebookFrontmatter.js";
 
 const VALID_LIST_STYLES = new Set(["none", "disc", "circle", "square", "decimal"]);
 const VALID_KINDS = new Set(["card", "table", "list", "compact"]);
@@ -92,7 +93,18 @@ const blogPostsDirective: DirectiveSpec = {
     const allPosts = paths.map((path) => {
       const ext = extname(path);
       const content = readFileSync(path, { encoding: "utf-8" });
-      const ast = ctx.parseMyst(content);
+      // For .ipynb files, parse only the notebook's frontmatter — passing the
+      // raw notebook JSON to ctx.parseMyst is both wrong (it isn't Markdown)
+      // and pathological (large notebooks have hung the build). Closes #13.
+      const ast = ext === ".ipynb"
+        ? parseNotebookAsAst(content)
+        : ctx.parseMyst(content);
+
+      // Capture the raw YAML *before* getFrontmatter consumes / removes the
+      // node from the AST. This is how we recover blog-specific fields that
+      // mystmd's PageFrontmatter validator doesn't know about (category,
+      // location, excerpt, pinned). See extractBlogFieldsFromYaml().
+      const rawYaml = extractRawYamlFromAst(ast);
       const frontmatter = validatePageFrontmatter(
         getFrontmatter(vfile, ast).frontmatter,
         {
@@ -120,9 +132,9 @@ const blogPostsDirective: DirectiveSpec = {
           title: frontmatter.title ?? defaultTitle,
           // Expose blog-specific fields that mystmd's PageFrontmatter validator
           // strips (category, location, excerpt, pinned, image) so filters and
-          // renderers can read them. validatePageFrontmatter has dropped them
-          // by this point if they aren't standard, so re-extract from the AST.
-          ...extractBlogFields(ast),
+          // renderers can read them. We re-parse from the raw YAML captured
+          // before getFrontmatter mutated the AST.
+          ...extractBlogFieldsFromYaml(rawYaml),
         },
       };
     });
@@ -175,21 +187,27 @@ const blogPostsDirective: DirectiveSpec = {
  * the blog-plugin layer needs blog-specific fields that mystmd core hasn't
  * standardized yet. Once they land in PageFrontmatter, this helper goes away.
  */
-function extractBlogFields(ast: any): Record<string, unknown> {
-  // getFrontmatter (called on the same AST upstream) consumes the leading YAML
-  // block. We re-walk the AST root for any top-level frontmatter-shaped node;
-  // this matches the upstream pattern.
-  const top = ast?.children?.[0];
-  if (!top || top.type !== "yaml" || typeof top.value !== "string") return {};
+function extractRawYamlFromAst(ast: any): string {
+  // The leading YAML frontmatter node lives at ast.children[0], or — when
+  // mystmd wraps the document in a `block` — at ast.children[0].children[0].
+  // Match getFrontmatter's own traversal pattern from myst-transforms.
+  let top = ast?.children?.[0];
+  if (top?.type === "block") top = top?.children?.[0];
+  if (!top || top.type !== "code" || top.lang !== "yaml" || typeof top.value !== "string") return "";
+  return top.value;
+}
+
+function extractBlogFieldsFromYaml(yaml: string): Record<string, unknown> {
+  if (!yaml) return {};
   const out: Record<string, unknown> = {};
   // Cheap parse: pull the keys we care about line-by-line. Avoids pulling in
-  // a full YAML parser for a hot path.
+  // a full YAML parser for a hot path. Only handles scalar values; lists and
+  // nested objects fall through (which is fine for these particular fields).
   for (const key of ["category", "location", "excerpt", "pinned", "image", "language"]) {
     const re = new RegExp(`^${key}\\s*:\\s*(.+?)\\s*$`, "m");
-    const m = re.exec(top.value);
+    const m = re.exec(yaml);
     if (!m) continue;
     let raw = m[1].trim();
-    // Strip surrounding quotes
     if ((raw.startsWith('"') && raw.endsWith('"')) || (raw.startsWith("'") && raw.endsWith("'"))) {
       raw = raw.slice(1, -1);
     }
