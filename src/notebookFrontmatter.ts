@@ -131,3 +131,51 @@ export function parseNotebookAsAst(content: string): GenericParent {
 
   return empty;
 }
+
+/**
+ * Pull a chunk of markdown body text out of a notebook for excerpt rendering.
+ * Walks the cells in order, skipping the leading frontmatter (either a
+ * `cells[0].metadata.frontmatter` cell, or a leading markdown cell whose
+ * source begins with a `---` YAML block). Concatenates the source of up to
+ * `maxMarkdownCells` subsequent markdown cells.
+ *
+ * The caller is expected to feed the result into `ctx.parseMyst` and then
+ * read the first N paragraphs of the resulting AST.
+ */
+export function extractNotebookBodyMarkdown(content: string, maxMarkdownCells: number = 3): string {
+  let nb: RawNotebook;
+  try {
+    nb = JSON.parse(content);
+  } catch {
+    return "";
+  }
+  const cells = nb.cells;
+  if (!Array.isArray(cells) || cells.length === 0) return "";
+
+  // Decide which cell holds the frontmatter so we can skip it.
+  let skipFirst = false;
+  const metaFm = cells[0]?.metadata?.frontmatter;
+  if (metaFm && typeof metaFm === "object" && !Array.isArray(metaFm)) {
+    // Convention 1: frontmatter in metadata. The first cell may still contain
+    // body content; skip only if it's empty / pure frontmatter. Heuristic:
+    // skip if the cell is markdown AND its source is empty after trimming.
+    const src = joinSource(cells[0]?.source).trim();
+    if (cells[0]?.cell_type === "markdown" && src.length === 0) skipFirst = true;
+  } else if (cells[0]?.cell_type === "markdown") {
+    const src = joinSource(cells[0].source);
+    if (extractLeadingYamlBlock(src) !== null) skipFirst = true;
+  }
+
+  const out: string[] = [];
+  let mdCellsTaken = 0;
+  for (let i = skipFirst ? 1 : 0; i < cells.length; i++) {
+    const cell = cells[i];
+    if (cell?.cell_type !== "markdown") continue;
+    const text = joinSource(cell.source).trim();
+    if (!text) continue;
+    out.push(text);
+    mdCellsTaken += 1;
+    if (mdCellsTaken >= maxMarkdownCells) break;
+  }
+  return out.join("\n\n");
+}

@@ -2,7 +2,7 @@
  * Renders blog posts as a single-paragraph-per-post compact stream — useful for
  * sidebars and "recent posts" widgets. No bullets, no card chrome.
  */
-import { renderFormat, postExcerptInline, postUrl } from "./shared.js";
+import { renderFormat, postExcerptBlocks, postUrl } from "./shared.js";
 
 export type CompactOptions = {
   format: string;
@@ -15,8 +15,8 @@ export function renderCompact(posts: any[], ctx: any, opts: CompactOptions) {
     const headerLine = renderFormat(opts.format, post, ctx, { linkTitleTo: post.url });
     const paragraphs: any[] = [{ type: "paragraph", children: headerLine }];
     if (opts.excerpts) {
-      const excerpt = postExcerptInline(post, ctx);
-      if (excerpt.length > 0) paragraphs.push({ type: "paragraph", children: excerpt });
+      const blocks = postExcerptBlocks(post, ctx);
+      if (blocks.length > 0) paragraphs.push(...blocks);
       paragraphs.push({
         type: "paragraph",
         children: [

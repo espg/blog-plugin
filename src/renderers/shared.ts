@@ -78,28 +78,39 @@ export function renderFormat(
 }
 
 /**
- * Best-effort excerpt extraction. Honors the post's `excerpt` frontmatter:
- *   - string  → render the string as inline markdown.
+ * Excerpt extraction (block-level). Honors the post's `excerpt` frontmatter:
+ *   - string  → parse the string as MyST; return its top-level block children
+ *               (typically a single paragraph).
+ *   - int N   → first N paragraphs of the post body, captured at directive
+ *               run-time as `post.bodyParagraphs`. Returns up to N.
  *   - false   → no excerpt.
- *   - int N   → take the first N paragraphs of the post body. (We approximate
- *               body-paragraph extraction by re-parsing post.path's contents.
- *               If body parsing is unavailable, returns []).
- *   - unset   → []. (Project-wide post_auto_excerpt fallback is the parent
- *               directive's responsibility, applied before reaching this helper.)
+ *   - unset   → no excerpt.
  *
- * Returns an array of inline AST nodes (suitable for inclusion in a paragraph).
+ * Returns block-level AST nodes (paragraphs); callers decide whether to spread
+ * them as siblings or flatten to inline.
  */
-export function postExcerptInline(post: any, ctx: any): any[] {
+export function postExcerptBlocks(post: any, ctx: any): any[] {
   const excerpt = post?.frontmatter?.excerpt;
   if (excerpt === false) return [];
   if (typeof excerpt === "string" && excerpt.length > 0) {
     const parsed = ctx.parseMyst(excerpt);
-    const first = parsed?.children?.find((c: any) => c.type === "paragraph");
-    if (first) return first.children ?? [];
-    return [{ type: "text", value: excerpt }];
+    return parsed?.children ?? [{ type: "paragraph", children: [{ type: "text", value: excerpt }] }];
   }
-  // For integer N or unset: return empty for now. Body-paragraph extraction
-  // requires either a re-parse of the file or a richer post object than the
-  // upstream directive currently has. Tracked as a follow-up.
+  if (typeof excerpt === "number" && Number.isFinite(excerpt) && excerpt > 0) {
+    const bodyParagraphs = post?.bodyParagraphs;
+    if (Array.isArray(bodyParagraphs)) return bodyParagraphs.slice(0, excerpt);
+    return [];
+  }
   return [];
+}
+
+/**
+ * Inline-only excerpt — returns the inline children of the first paragraph
+ * produced by postExcerptBlocks. Kept for renderers that can only embed inline
+ * nodes (e.g. inside an existing `<p>`).
+ */
+export function postExcerptInline(post: any, ctx: any): any[] {
+  const blocks = postExcerptBlocks(post, ctx);
+  const first = blocks.find((b: any) => b?.type === "paragraph");
+  return first?.children ?? [];
 }

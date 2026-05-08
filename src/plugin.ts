@@ -12,7 +12,7 @@ import { renderCompact } from "./renderers/compact.js";
 import { applyFilters, parseCommaList, warnUnknownFilterValues, type Filters } from "./filters.js";
 import { applySort } from "./sort.js";
 import { updateDirective } from "./directives/update.js";
-import { parseNotebookAsAst } from "./notebookFrontmatter.js";
+import { parseNotebookAsAst, extractNotebookBodyMarkdown } from "./notebookFrontmatter.js";
 
 const VALID_LIST_STYLES = new Set(["none", "disc", "circle", "square", "decimal"]);
 const VALID_KINDS = new Set(["card", "table", "list", "compact"]);
@@ -109,6 +109,13 @@ const blogPostsDirective: DirectiveSpec = {
         ? parseNotebookAsAst(content)
         : ctx.parseMyst(content);
 
+      // For excerpt-from-body, notebooks need a separate parse: the synthetic
+      // ast above only carries frontmatter. Pull a few leading markdown cells
+      // and run them through ctx.parseMyst to get paragraph nodes.
+      const bodyAst = ext === ".ipynb"
+        ? ctx.parseMyst(extractNotebookBodyMarkdown(content, 3))
+        : ast;
+
       // Capture the raw YAML *before* getFrontmatter consumes / removes the
       // node from the AST. This is how we recover blog-specific fields that
       // mystmd's PageFrontmatter validator doesn't know about (category,
@@ -136,6 +143,10 @@ const blogPostsDirective: DirectiveSpec = {
       return {
         path,
         url: `/${path.toString().slice(0, -ext.length)}`,
+        // First few paragraph nodes from the post body, so renderers can
+        // honor `excerpt: N` (take the first N paragraphs) without re-reading
+        // the file. Cap at MAX_BODY_PARAGRAPHS to bound memory.
+        bodyParagraphs: extractBodyParagraphs(bodyAst, MAX_BODY_PARAGRAPHS),
         frontmatter: {
           ...frontmatter,
           title: frontmatter.title ?? defaultTitle,
@@ -204,6 +215,38 @@ function extractRawYamlFromAst(ast: any): string {
   if (top?.type === "block") top = top?.children?.[0];
   if (!top || top.type !== "code" || top.lang !== "yaml" || typeof top.value !== "string") return "";
   return top.value;
+}
+
+// Cap on how many leading paragraphs we cache per post — supports
+// excerpt: N up to this many paragraphs.
+const MAX_BODY_PARAGRAPHS = 5;
+
+/**
+ * Walk the parsed AST and pull out the first N top-level paragraph nodes
+ * from the post body. Skips the leading YAML frontmatter (a `code` node with
+ * lang: "yaml") and descends into mystmd's `block` wrapper nodes.
+ *
+ * Returns paragraph nodes (block-level), not their inline children — callers
+ * decide whether to render them as separate paragraphs or flatten to inline.
+ */
+function extractBodyParagraphs(ast: any, max: number): any[] {
+  const out: any[] = [];
+  const visit = (node: any) => {
+    if (out.length >= max || !node) return;
+    if (node.type === "paragraph") {
+      out.push(node);
+      return;
+    }
+    if (node.type === "code" && node.lang === "yaml") return;
+    if (Array.isArray(node.children)) {
+      for (const child of node.children) {
+        visit(child);
+        if (out.length >= max) return;
+      }
+    }
+  };
+  visit(ast);
+  return out;
 }
 
 function extractBlogFieldsFromYaml(yaml: string): Record<string, unknown> {

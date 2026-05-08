@@ -2,7 +2,7 @@
  * Renders blog posts as cards with title, subtitle, description, optional
  * excerpt, optional thumbnail image, and date.
  */
-import { postExcerptInline, postUrl } from "./shared.js";
+import { postExcerptBlocks, postUrl } from "./shared.js";
 
 export type CardOptions = {
   excerpts: boolean;
@@ -31,9 +31,9 @@ export function renderCards(posts: any[], ctx: any, opts: CardOptions = { excerp
 
     const excerptItems: any[] = [];
     if (opts.excerpts) {
-      const inline = postExcerptInline(post, ctx);
-      if (inline.length > 0) {
-        excerptItems.push({ type: "paragraph", children: inline });
+      const blocks = postExcerptBlocks(post, ctx);
+      if (blocks.length > 0) {
+        excerptItems.push(...blocks);
         excerptItems.push({
           type: "paragraph",
           children: [

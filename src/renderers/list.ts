@@ -18,7 +18,7 @@ export type ListOptions = {
   expand: string;
 };
 
-import { renderFormat, postExcerptInline, postUrl } from "./shared.js";
+import { renderFormat, postExcerptBlocks, postUrl } from "./shared.js";
 
 export function renderList(posts: any[], ctx: any, opts: ListOptions) {
   const ordered = opts.listStyle === "decimal";
@@ -31,9 +31,9 @@ export function renderList(posts: any[], ctx: any, opts: ListOptions) {
       },
     ];
     if (opts.excerpts) {
-      const excerpt = postExcerptInline(post, ctx);
-      if (excerpt.length > 0) {
-        children.push({ type: "paragraph", children: excerpt });
+      const blocks = postExcerptBlocks(post, ctx);
+      if (blocks.length > 0) {
+        children.push(...blocks);
       }
       children.push({
         type: "paragraph",
