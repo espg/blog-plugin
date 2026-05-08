@@ -93,6 +93,15 @@ const blogPostsDirective: DirectiveSpec = {
     const allPosts = paths.map((path) => {
       const ext = extname(path);
       const content = readFileSync(path, { encoding: "utf-8" });
+      // Files without a `date:` aren't blog posts — skip them. This is also
+      // what prevents recursive parsing when a glob matches a section-index
+      // file that itself contains a {blog-posts} directive: those index files
+      // never have `date:`, so we bail before ctx.parseMyst would re-enter
+      // this directive's run().
+      if (ext === ".md") {
+        const fm = content.match(/^---\r?\n([\s\S]*?)\r?\n---/);
+        if (!fm || !/^date:\s*\S/m.test(fm[1])) return null;
+      }
       // For .ipynb files, parse only the notebook's frontmatter — passing the
       // raw notebook JSON to ctx.parseMyst is both wrong (it isn't Markdown)
       // and pathological (large notebooks have hung the build). Closes #13.
@@ -137,7 +146,7 @@ const blogPostsDirective: DirectiveSpec = {
           ...extractBlogFieldsFromYaml(rawYaml),
         },
       };
-    });
+    }).filter((p): p is NonNullable<typeof p> => p !== null);
 
     // ── filter ───────────────────────────────────────────────────────────
     const anyFilterSet = Boolean(
